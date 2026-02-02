@@ -35,7 +35,6 @@
             display: flex; flex-direction: column; gap: 15px;
         }
         .slider-group label { font-size: 0.85rem; color: var(--accent); display: flex; justify-content: space-between; }
-        .risk-meter { font-weight: bold; }
         input[type=range] { width: 100%; margin: 10px 0; cursor: pointer; }
         
         .btn-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
@@ -49,6 +48,10 @@
         .btn.cheat.active { background: var(--gold); color: #000; box-shadow: 0 0 15px var(--gold); }
         .btn.sip { border-color: #fff; color: #fff; }
         .btn.sip:disabled { opacity: 0.5; cursor: not-allowed; }
+        
+        .btn.hazard { border-color: var(--danger); color: var(--danger); font-weight: bold; }
+        .btn.hazard:hover { background: var(--danger); color: #000; box-shadow: 0 0 20px var(--danger); }
+
         .btn.start { background: var(--accent); color: #000; font-weight: bold; border: none; box-shadow: 0 0 10px var(--accent); }
         .btn.start:hover { transform: scale(1.05); }
 
@@ -79,16 +82,18 @@
 
     <div class="controls-panel" id="controls">
         <div class="slider-group">
-            <label>WALKING PACE: <span id="paceLabel">普通</span> <span class="risk-meter" id="riskMeter">★★★☆☆</span></label>
-            <input type="range" id="paceSlider" min="1" max="5" step="1" value="3">
+            <label>WALKING FREQUENCY: <span id="paceLabel">2.1 Hz</span></label>
+            <input type="range" id="paceSlider" min="0.5" max="4.0" step="0.1" value="2.1">
         </div>
         <div class="btn-group" id="preGameBtns">
+             <button class="btn hazard" id="maxHazardBtn" onclick="setMaxHazard()">MAX HAZARD</button>
              <button class="btn sip" id="preSipBtn" onclick="preGameSip()">減らして開始 (飲む)</button>
              <button class="btn start" id="startBtn" onclick="startGame()">START OPERATION</button>
         </div>
         <div class="btn-group" id="inGameBtns" style="display:none;">
             <button class="btn cheat" id="cheatBtn" onclick="toggleCheat()">CUP: NORMAL</button>
             <button class="btn sip" id="sipBtn" onclick="takeASip()">一口飲む (残り3)</button>
+            <button class="btn hazard" onclick="setMaxHazard()" style="min-width: 50px; font-size: 0.8rem;">⚠️</button>
         </div>
         <div style="text-align:center; font-size:0.8rem; color:#888; margin-top:5px;">
             操作: 矢印キー(傾ける) / マウス / スマホ | 飲む: スペース
@@ -101,8 +106,8 @@
     <img id="resultImage" src="" alt="Result">
     <p class="desc" id="overlayDesc">
         物理法則という名の「悪霊」に挑戦せよ。<br>
-        傾けすぎれば、当然こぼれます。<br>
-        共振をカウンター操作でねじ伏せろ。
+        カップの8割まで注がれた液体。<br>
+        「一口飲む」ことの重要性を噛み締めろ。
     </p>
     <button class="btn" id="sensorBtn" onclick="requestSensorPermission()" style="display:none; margin-bottom: 15px;">START SENSOR (Mobile)</button>
     <button class="btn" id="overlayMainBtn" onclick="closeOverlay()">ENTER LAB</button>
@@ -114,45 +119,31 @@
         baseTime: 10.0, sipBonus: 5.0,
         g: 9.8, cupWidth: 150,
         cupHeight: 160,
-        initialLiquidH: 80, sipAmount: 20, 
+        initialLiquidH: 130, // 8割スタート
+        sipAmount: 25, 
         maxSips: 3,
-        dampingNormal: 0.98, dampingTsubo: 0.94,
-        
-        // ★修正1: 手ブレの質感を変更 (低周波・大振幅化)
-        handTremorFreq: 6,      // 15 -> 6 (不快なビリビリをなくし、うねりに変更)
-        handTremorScale: 0.15,  // 0.12 -> 0.15 (振幅は大きく)
-        driftScale: 0.06,       // ドリフトさらに強化
-        
-        // ★修正2: 傾きリミッター解除 (自滅可能に)
-        keyTiltMax: 0.8,        // 0.35 -> 0.8 (約45度まで傾く)
-        mouseTiltScale: 2.5,    // マウス感度UP
-        
+        dampingNormal: 0.99, dampingTsubo: 0.94,
+        tremorBaseAmp: 0.04, 
+        driftWalkSpeed: 0.002,
+        keyTiltMax: 0.7, 
+        mouseTiltScale: 2.0,    
         defaultMuted: true
     };
 
-    // ★修正3: 共振強度(gain)を全体的にUP
-    const PACES = {
-        1: { hz: 1.2, label: "最徐行", risk: "★★☆☆☆", gain: 0.8, impact: 15 },
-        2: { hz: 2.0, label: "ゆっくり", risk: "★★★★★", gain: 2.5, impact: 30 }, // Gain 1.6 -> 2.5 (即死級)
-        3: { hz: 2.8, label: "普通", risk: "★★★★☆", gain: 1.3, impact: 50 },
-        4: { hz: 3.6, label: "早歩き", risk: "★★★☆☆", gain: 0.8, impact: 65 },
-        5: { hz: 4.4, label: "急ぎ足", risk: "★★★★☆", gain: 0.6, impact: 85 }
-    };
-
-    let gameState = 'TITLE';
+    let gameState = 'TITLE'; 
     let timeRemaining = CONFIG.baseTime;
     let lastTime = 0;
     let isTsuboMode = false;
     let sipStock = CONFIG.maxSips;
     let currentLiquidH = CONFIG.initialLiquidH;
-    let currentPace = PACES[3];
+    let currentHz = 2.1;
     let isMuted = CONFIG.defaultMuted;
     let startTime = 0;
+    let dyingStartTime = 0;
 
     let liquidAmp = 0; liquidVel = 0;
-    let cupTilt = 0; let targetTilt = 0; let cupAngVel = 0;
+    let cupTilt = 0; let baseTilt = 0; let driftTilt = 0; let handNoise = 0;
     let keyTilt = 0; let mouseTilt = 0; let deviceTilt = 0;
-    let handNoise = 0;
 
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
@@ -160,7 +151,6 @@
     const statusDisplay = document.getElementById('statusDisplay');
     const paceSlider = document.getElementById('paceSlider');
     const paceLabel = document.getElementById('paceLabel');
-    const riskMeter = document.getElementById('riskMeter');
     const cheatBtn = document.getElementById('cheatBtn');
     const sipBtn = document.getElementById('sipBtn');
     const preSipBtn = document.getElementById('preSipBtn');
@@ -184,7 +174,7 @@
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
         setupInputs();
-        updatePaceUI(3);
+        updatePaceUI(parseFloat(paceSlider.value));
         updateMuteUI();
         if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && typeof DeviceMotionEvent.requestPermission === 'function') {
             sensorBtn.style.display = 'inline-block';
@@ -199,7 +189,6 @@
 
     function setupInputs() {
         document.addEventListener('mousemove', (e) => {
-            // マウス感度強化
             mouseTilt = ((e.clientX / window.innerWidth) - 0.5) * CONFIG.mouseTiltScale;
         });
         document.addEventListener('keydown', (e) => {
@@ -210,7 +199,10 @@
         document.addEventListener('keyup', (e) => {
             if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') keyTilt = 0;
         });
-        paceSlider.addEventListener('input', (e) => updatePaceUI(e.target.value));
+        
+        paceSlider.addEventListener('input', (e) => {
+            updatePaceUI(parseFloat(e.target.value));
+        });
     }
 
     function requestSensorPermission() {
@@ -218,7 +210,7 @@
             DeviceMotionEvent.requestPermission().then(res => {
                 if (res === 'granted') {
                     window.addEventListener('deviceorientation', (e) => {
-                        if (e.gamma) deviceTilt = (e.gamma / 90) * 2.5; // スマホ感度も強化
+                        if (e.gamma) deviceTilt = (e.gamma / 90) * 2.5; 
                     });
                     sensorBtn.style.display = 'none';
                 }
@@ -227,12 +219,35 @@
     }
 
     function updatePaceUI(val) {
-        currentPace = PACES[val];
-        paceLabel.textContent = currentPace.label;
-        riskMeter.textContent = currentPace.risk;
-        if(currentPace.gain > 1.2) riskMeter.style.color = 'var(--danger)';
-        else if(currentPace.impact >= 50) riskMeter.style.color = '#ff8800';
-        else riskMeter.style.color = 'var(--accent)';
+        currentHz = val;
+        paceLabel.textContent = currentHz.toFixed(1) + " Hz";
+        
+        const eigenFreq = calculateEigenFreq();
+        const diff = Math.abs(currentHz - eigenFreq);
+        
+        if (diff < 0.2) paceLabel.style.color = 'var(--danger)'; 
+        else if (diff < 0.5) paceLabel.style.color = '#ff8800';  
+        else paceLabel.style.color = 'var(--accent)';            
+    }
+
+    function calculateEigenFreq() {
+        const hFactor = currentLiquidH / CONFIG.initialLiquidH; 
+        return 2.1 * Math.sqrt(hFactor); 
+    }
+
+    function setMaxHazard() {
+        const eigenFreq = calculateEigenFreq();
+        let targetHz = Math.max(0.5, Math.min(4.0, eigenFreq));
+        paceSlider.value = targetHz;
+        updatePaceUI(targetHz);
+        
+        statusDisplay.textContent = "⚠️ MAX RESONANCE SET ⚠️";
+        statusDisplay.style.color = 'var(--danger)';
+        setTimeout(() => {
+            if(gameState === 'PLAYING') statusDisplay.textContent = "WALKING...";
+            else statusDisplay.textContent = "READY TO START";
+            statusDisplay.style.color = 'var(--accent)';
+        }, 1500);
     }
 
     function toggleMute() {
@@ -257,6 +272,7 @@
         playSipSound();
         preSipBtn.textContent = "さらに減らす";
         draw(); 
+        updatePaceUI(currentHz); 
     }
 
     function takeASip() {
@@ -271,6 +287,7 @@
         setTimeout(() => timerDisplay.style.color = '', 500);
         playSipSound();
         statusDisplay.textContent = "質量変化: 共振点シフト";
+        updatePaceUI(currentHz);
     }
 
     function closeOverlay() {
@@ -281,11 +298,14 @@
         statusDisplay.textContent = "READY TO START";
         preGameBtns.style.display = 'flex';
         inGameBtns.style.display = 'none';
+        
+        paceSlider.value = 2.1;
+        updatePaceUI(2.1);
     }
 
     function resetGameParams() {
         timeRemaining = CONFIG.baseTime;
-        liquidAmp = 0; liquidVel = 0; cupTilt = 0; cupAngVel = 0;
+        liquidAmp = 0; liquidVel = 0; cupTilt = 0; baseTilt = 0; driftTilt = 0;
         sipStock = CONFIG.maxSips;
         currentLiquidH = CONFIG.initialLiquidH;
         sipBtn.disabled = false;
@@ -303,40 +323,46 @@
     }
 
     function stepLoop() {
-        if (gameState !== 'PLAYING') return;
+        if (gameState !== 'PLAYING') return; 
+        
         applyStepForce();
         playFootstepSound();
-        const baseInterval = 1000 / currentPace.hz;
-        const jitter = (Math.random() - 0.5) * baseInterval * 0.25;
+        
+        const time = (performance.now() - startTime) / 1000;
+        const arrhythmia = Math.sin(time * 0.8) * 0.2; 
+        
+        const effHz = currentHz * (1.0 + arrhythmia);
+        const baseInterval = 1000 / effHz;
+        
+        const jitter = (Math.random() - 0.5) * baseInterval * 0.1;
+        
         setTimeout(stepLoop, baseInterval + jitter);
     }
 
     function applyStepForce() {
-        const hFactor = currentLiquidH / CONFIG.initialLiquidH; 
-        const currentEigenFreq = 2.0 * Math.sqrt(hFactor); 
-        const freqDiff = Math.abs(currentPace.hz - currentEigenFreq);
+        const eigenFreq = calculateEigenFreq();
+        const freqDiff = Math.abs(currentHz - eigenFreq);
         
-        const resonanceEfficiency = 0.1 / (freqDiff + 0.05) * currentPace.gain;
-        const rawImpact = currentPace.impact * (0.8 + Math.random() * 0.4);
+        let gain = 0;
+        if (freqDiff < 0.15) { gain = 2.5; } 
+        else if (freqDiff < 0.4) { gain = 1.5; } 
+        else if (freqDiff < 0.8) { gain = 0.8; } 
+        else { gain = 0.2; }
+
+        const impactBase = 10 + (currentHz * 15); 
+        const forceMag = (impactBase * gain) * (0.8 + Math.random() * 0.4);
         
+        const dir = Math.random() > 0.5 ? 1 : -1;
         const elapsedTime = (performance.now() - startTime) / 1000;
         const warmUpFactor = Math.min(1.0, elapsedTime / 2.0);
 
-        const dir = Math.random() > 0.5 ? 1 : -1;
-        const force = dir * ( (50 * resonanceEfficiency) + rawImpact ) * warmUpFactor;
+        const force = dir * forceMag * warmUpFactor;
         
         liquidVel += force;
-
-        if (rawImpact > 45) {
-            statusDisplay.textContent = "⚠️ 高エネルギー衝撃! ⚠️";
-            statusDisplay.style.color = '#ff8800';
-        } else if (resonanceEfficiency > 1.5) {
-            statusDisplay.textContent = "⚠️ 共振危険域! ⚠️";
-            statusDisplay.style.color = 'var(--danger)';
-        } else {
-            statusDisplay.textContent = "WALKING...";
-            statusDisplay.style.color = 'var(--accent)';
-        }
+        
+        if (gain > 2.0) statusDisplay.textContent = "⚠️ RESONANCE PEAK ⚠️";
+        else if (gain < 0.3) statusDisplay.textContent = "SAFE ZONE";
+        else statusDisplay.textContent = "WALKING...";
     }
 
     function update(timestamp) {
@@ -344,8 +370,14 @@
         lastTime = timestamp;
 
         if (gameState === 'PLAYING') {
-            updatePhysics(dt);
+            updatePhysics(dt, timestamp);
             updateTimer(dt);
+        } else if (gameState === 'DYING') {
+            // スローモーション (1/5倍速)
+            updatePhysics(dt * 0.2, timestamp);
+            if (performance.now() - dyingStartTime > 1500) {
+                endGame('FAILURE');
+            }
         } else if (gameState === 'READY') {
              updatePhysicsReady(dt);
         }
@@ -363,91 +395,79 @@
 
     function updatePhysicsReady(dt) {
         const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
-        targetTilt = rawTilt; 
-        cupTilt += (targetTilt - cupTilt) * 6 * dt; 
+        baseTilt += (rawTilt - baseTilt) * 6 * dt; 
+        cupTilt = baseTilt;
         liquidAmp *= 0.9; 
     }
 
-    function updatePhysics(dt) {
+    function updatePhysics(dt, time) {
         if (dt > 0.1) return;
 
-        handNoise = (Math.sin(lastTime * CONFIG.handTremorFreq) * CONFIG.handTremorScale) + 
-                    (Math.sin(lastTime * 0.5) * CONFIG.driftScale);
-        const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
-        targetTilt = rawTilt + handNoise;
-
-        const prevTilt = cupTilt;
-        cupTilt += (targetTilt - cupTilt) * 6 * dt; 
-        cupAngVel = (cupTilt - prevTilt) / dt;
-
-        const k = 30;
-        let damping = isTsuboMode ? CONFIG.dampingTsubo : CONFIG.dampingNormal;
+        // --- DYING時は入力を停止 ---
+        if (gameState !== 'DYING') {
+            const t = time / 1000;
+            const wave1 = Math.sin(t * 1.5);
+            const wave2 = Math.sin(t * 4.2 + 1.0);
+            const wave3 = Math.sin(t * 9.8 + 2.5) * 0.3;
+            handNoise = (wave1 + wave2 + wave3) * CONFIG.tremorBaseAmp;
+            driftTilt += (Math.random() - 0.5) * CONFIG.driftWalkSpeed;
+            
+            const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
+            baseTilt += (rawTilt - baseTilt) * 6 * dt;
+            
+            const prevTilt = cupTilt;
+            cupTilt = baseTilt + driftTilt + handNoise;
+        } 
         
-        const wallForce = -cupAngVel * 60; 
+        // DYING時はカップは静止する(or 慣性で動く)が、入力更新はしない
+        const cupAngVel = (gameState === 'DYING') ? 0 : 0; 
+
+        // ★修正: DYING時は k を負の値にして、液体を外へ吹き飛ばす
+        const k = (gameState === 'DYING') ? -20 : 30;
+        
+        let damping = isTsuboMode ? CONFIG.dampingTsubo : CONFIG.dampingNormal;
+        const wallForce = -cupAngVel * 80; 
         const gravityForce = Math.sin(cupTilt) * 200; 
         if (isTsuboMode && Math.abs(liquidAmp) > 45) damping *= 0.85; 
 
+        // 運動方程式
         const acc = -k * liquidAmp + gravityForce + wallForce;
         liquidVel += acc * dt;
         liquidVel *= Math.pow(damping, dt * 60);
         liquidAmp += liquidVel * dt;
 
-        // ★修正4: こぼれ判定の厳密化
-        // 振幅(liquidAmp)だけでなく、カップの傾きによる液面の上昇も計算
-        // 左端または右端のY座標が 0 (コップ縁) を超えたらアウト
-        const w = CONFIG.cupWidth / 2;
-        const tanTilt = Math.tan(-cupTilt);
-        // 液面左端の高さ(Topからの距離。負なら溢れてる)
-        const yLeft = (-currentLiquidH) - liquidAmp + (-w * tanTilt);
-        // 液面右端の高さ
-        const yRight = (-currentLiquidH) + liquidAmp + (w * tanTilt);
+        // こぼれ判定
+        if (gameState === 'PLAYING') {
+            const w = CONFIG.cupWidth / 2;
+            const tanTilt = Math.tan(-cupTilt);
+            const yLeft = (-currentLiquidH) - liquidAmp + (-w * tanTilt);
+            const yRight = (-currentLiquidH) + liquidAmp + (w * tanTilt);
+            const rimY = -CONFIG.cupHeight;
 
-        // yが0より大きい（画面下方向）ならセーフ。0より小さい（画面上方向）なら溢れ。
-        // キャンバス座標系では上が負、下が正。コップ縁は y=0。
-        // つまり yLeft < 0 or yRight < 0 でアウト。
-        if (yLeft > 0 || yRight > 0) { // y軸反転しているので、正の値(0より下)ならアウトではなく...
-                                       // 待って、liquidTopY = -currentLiquidH (例:-80)。
-                                       // コップ縁は 0。液面が盛り上がって 0 に近づく。
-                                       // 座標系: 縁=0, 底=160. 液面=-80.
-                                       // 溢れる条件: 液面Y > 0 ではなく 液面Y > 0 (底方向) ... 逆だ。
-                                       // キャンバスは上が負、下が正。縁(0)より上に行くと負になる。
-                                       // つまり yLeft > 0 (下) はセーフ。 yLeft < 0 (上) は溢れ? 
-                                       // いや、描画コードを見ると `ctx.lineTo(x, y)`
-                                       // y = -currentLiquidH + wave.
-                                       // 縁は y=0. つまり y > 0 (正) だとコップの中(底側)。 y < 0 (負) だと縁より上？
-                                       // 違う、底が描画で (0,0)から下に描いてる？
-                                       // defineCupPath: move(-w, -h). 縁は -h (-160).
-                                       // 液面初期値: -80.
-                                       // つまり、y < -160 になったら溢れ。
-                                       // しかしdraw関数では ctx.translate(cx, cy) している。
-                                       // defineCupPathでは y=0 が底になっているように見える (lineTo(w,0))
-                                       // でも moveTo(-w, -h) してる。
-                                       // あ、通常コップ: move(-w, -h) ... lineTo(-bot, 0).
-                                       // つまり y=0 が底、y=-h が縁。
-                                       // 液面計算: liquidTopY = -currentLiquidH (-80).
-                                       // 溢れる条件: 液面Y < -CONFIG.cupHeight (-160).
-                                       
-           // 再確認: draw関数内
-           // ctx.moveTo(-w, 100); // 底の描画用ダミー?
-           // defineCupPath: NORMAL: moveTo(-w, -h)... lineTo(bot, 0).
-           // つまり y=0 が底。 y=-160 が縁。
-           // 液面: -80 スタート。
-           // 溢れる条件: y < -160.
-
-           const rimY = -CONFIG.cupHeight;
-           if (yLeft < rimY || yRight < rimY) {
-               endGame('FAILURE');
-           }
+            if (yLeft < rimY || yRight < rimY) {
+                startDying();
+            }
         }
+    }
+
+    function startDying() {
+        gameState = 'DYING';
+        dyingStartTime = performance.now();
+        playFailSound(); 
+        if (navigator.vibrate) navigator.vibrate(800);
+        statusDisplay.textContent = "CRITICAL FAILURE !!";
+        statusDisplay.style.color = 'var(--danger)';
+        paceSlider.disabled = true;
+        sipBtn.disabled = true;
     }
 
     function endGame(result) {
         gameState = 'END';
         controlsPanel.style.opacity = '1';
+        paceSlider.disabled = false;
         overlay.style.display = 'flex';
         resultImage.style.display = 'block';
         sensorBtn.style.display = 'none';
-        
         overlayMainBtn.textContent = "RETRY CHALLENGE";
 
         if (result === 'SUCCESS') {
@@ -461,8 +481,6 @@
             overlayTitle.style.color = 'var(--danger)';
             overlayDesc.innerHTML = "残念...物理の魔物に飲み込まれました。<br>制御不能なエネルギーの暴走です。";
             resultImage.src = "failure.png";
-            playFailSound();
-            if (navigator.vibrate) navigator.vibrate(300);
         }
     }
 
@@ -509,14 +527,13 @@
         const tanTilt = Math.tan(-cupTilt);
         const bottomW = isTsuboMode ? w : w * 0.7; 
 
-        // 左端・右端のY座標（判定用と同じロジックで描画）
         const yLeft = liquidTopY - liquidAmp + (-w * tanTilt);
         const yRight = liquidTopY + liquidAmp + (w * tanTilt);
 
-        ctx.moveTo(isTsuboMode ? -w : -bottomW, 0); // 底
-        ctx.lineTo(-w, yLeft); // 左液面
-        ctx.lineTo(w, yRight); // 右液面
-        ctx.lineTo(isTsuboMode ? w : bottomW, 0); // 底
+        ctx.moveTo(isTsuboMode ? -w : -bottomW, 0); 
+        ctx.lineTo(-w, yLeft); 
+        ctx.lineTo(w, yRight); 
+        ctx.lineTo(isTsuboMode ? w : bottomW, 0); 
         
         ctx.closePath();
         ctx.fill();
