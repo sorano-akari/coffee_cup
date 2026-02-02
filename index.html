@@ -2,384 +2,565 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Akari's Coffee Resonance Lab</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sloshing Survival: Akari's Physics Lab</title>
     <style>
-        :root {
-            --bg-color: #121212;
-            --panel-bg: rgba(30, 30, 30, 0.8);
-            --accent-color: #00f2ff; /* Cyan Neon */
-            --danger-color: #ff0055; /* Warning Red */
-            --text-color: #e0e0e0;
-            --font-main: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
-
+        :root { --bg: #0a0a0a; --accent: #00f2ff; --danger: #ff3366; --text: #e0e0e0; --gold: #ffd700; }
         body {
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            font-family: var(--font-main);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-            overflow-x: hidden;
+            margin: 0; background: var(--bg); color: var(--text);
+            font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none;
+            display: flex; flex-direction: column; align-items: center; height: 100vh;
         }
-
-        /* Header Design */
-        header {
-            width: 100%;
-            padding: 20px 0;
-            text-align: center;
-            background: linear-gradient(90deg, #000, #1a1a1a);
-            border-bottom: 1px solid var(--accent-color);
-            box-shadow: 0 0 15px rgba(0, 242, 255, 0.2);
-        }
-
-        h1 {
-            margin: 0;
-            font-weight: 300;
-            letter-spacing: 2px;
-            font-size: 1.5rem;
-        }
+        canvas { position: absolute; top: 0; left: 0; z-index: 10; }
         
-        .subtitle {
-            font-size: 0.8rem;
-            color: var(--accent-color);
-            opacity: 0.8;
+        /* UI Layer */
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
+        .top-bar { position: absolute; top: 20px; width: 100%; text-align: center; pointer-events: auto; }
+        .timer { font-size: 3rem; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0 0 10px var(--accent); }
+        .status { font-size: 0.9rem; letter-spacing: 2px; color: var(--accent); margin-top: 5px; }
+        
+        .mute-btn {
+            background: rgba(0, 0, 0, 0.5); border: 1px solid var(--accent); color: var(--accent);
+            border-radius: 50%; width: 40px; height: 40px; font-size: 1.2rem; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; margin-left: 10px;
+            vertical-align: middle; transition: 0.3s;
         }
+        .mute-btn:hover { background: var(--accent); color: #000; }
 
-        /* Main Lab Container */
-        .lab-container {
-            position: relative;
-            margin-top: 30px;
-            width: 320px;
-            height: 400px;
-            background: radial-gradient(circle at center, #2a2a2a, #000);
-            border-radius: 20px;
-            box-shadow: inset 0 0 20px #000, 0 10px 30px rgba(0,0,0,0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
+        .controls-panel {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 420px; background: rgba(20, 20, 30, 0.85);
+            backdrop-filter: blur(10px); padding: 20px; border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.1); pointer-events: auto;
+            display: flex; flex-direction: column; gap: 15px;
         }
+        .slider-group label { font-size: 0.85rem; color: var(--accent); display: flex; justify-content: space-between; }
+        .risk-meter { font-weight: bold; }
+        input[type=range] { width: 100%; margin: 10px 0; cursor: pointer; }
+        
+        .btn-group { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+        .btn {
+            background: transparent; border: 2px solid var(--accent); color: var(--accent);
+            padding: 10px 20px; border-radius: 30px; font-size: 0.9rem; cursor: pointer;
+            transition: 0.3s; font-family: inherit; flex: 1; min-width: 100px; text-align: center;
+        }
+        .btn:hover { background: var(--accent); color: #000; box-shadow: 0 0 15px var(--accent); }
+        .btn.cheat { border-color: var(--gold); color: var(--gold); }
+        .btn.cheat.active { background: var(--gold); color: #000; box-shadow: 0 0 15px var(--gold); }
+        .btn.sip { border-color: #fff; color: #fff; }
+        .btn.sip:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.start { background: var(--accent); color: #000; font-weight: bold; border: none; box-shadow: 0 0 10px var(--accent); }
+        .btn.start:hover { transform: scale(1.05); }
 
-        canvas {
-            z-index: 10;
+        /* Overlay & Result */
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); z-index: 100; display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            text-align: center; padding: 20px; transition: opacity 0.5s;
         }
-
-        /* UI Control Panel */
-        .controls {
-            margin-top: 20px;
-            width: 90%;
-            max-width: 400px;
-            background: var(--panel-bg);
-            backdrop-filter: blur(10px);
-            padding: 20px;
-            border-radius: 15px;
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .control-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            color: var(--accent-color);
-        }
-
-        /* Custom Range Slider */
-        input[type=range] {
-            width: 100%;
-            -webkit-appearance: none;
-            background: transparent;
-        }
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 20px;
-            width: 20px;
-            border-radius: 50%;
-            background: var(--accent-color);
-            cursor: pointer;
-            margin-top: -8px;
-            box-shadow: 0 0 10px var(--accent-color);
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 4px;
-            cursor: pointer;
-            background: #444;
-            border-radius: 2px;
-        }
-
-        /* Status Display */
-        .status-display {
-            display: flex;
-            justify-content: space-between;
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            margin-top: 10px;
-        }
-        .status-value {
-            color: #fff;
-            font-weight: bold;
-        }
-
-        /* Akari Mode Switch */
-        .switch-container {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #333;
-        }
-        .toggle-btn {
-            background: transparent;
-            border: 1px solid var(--accent-color);
-            color: var(--accent-color);
-            padding: 8px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: var(--font-main);
-        }
-        .toggle-btn.active {
-            background: var(--accent-color);
-            color: #000;
-            box-shadow: 0 0 15px var(--accent-color);
-        }
-
-        /* Warning Overlay */
-        .warning {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            color: var(--danger-color);
-            font-weight: bold;
-            opacity: 0;
-            transition: opacity 0.2s;
-            text-shadow: 0 0 5px var(--danger-color);
-            pointer-events: none;
-            z-index: 100;
-        }
-
+        #resultImage { max-width: 80%; max-height: 45vh; border-radius: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); margin-bottom: 20px; display: none; }
+        .title { font-size: 1.8rem; letter-spacing: 4px; color: var(--accent); margin-bottom: 10px; }
+        .desc { font-size: 1rem; max-width: 500px; line-height: 1.6; color: #ccc; margin-bottom: 30px; }
     </style>
 </head>
 <body>
 
-<header>
-    <h1>PHYSICS LAB</h1>
-    <div class="subtitle">Exp.03: Fluid Resonance & Walking Rhythm</div>
-</header>
+<canvas id="simCanvas"></canvas>
 
-<div class="lab-container">
-    <div class="warning" id="warningText">WARNING: SPILL DETECTED</div>
-    <canvas id="simCanvas" width="320" height="400"></canvas>
-</div>
+<div id="ui-layer">
+    <div class="top-bar">
+        <div style="display: inline-block;">
+            <div class="timer" id="timerDisplay">10.00</div>
+        </div>
+        <button class="mute-btn" id="muteBtn" onclick="toggleMute()">🔇</button>
+        <div class="status" id="statusDisplay">READY TO START</div>
+    </div>
 
-<div class="controls">
-    <div class="control-group">
-        <label>Walking Speed (Step Frequency)</label>
-        <input type="range" id="speedSlider" min="0" max="3.5" step="0.1" value="0">
-        <div class="status-display">
-            <span>Stand</span>
-            <span id="freqDisplay" class="status-value">0.0 Hz</span>
-            <span>Run</span>
+    <div class="controls-panel" id="controls">
+        <div class="slider-group">
+            <label>WALKING PACE: <span id="paceLabel">普通</span> <span class="risk-meter" id="riskMeter">★★★☆☆</span></label>
+            <input type="range" id="paceSlider" min="1" max="5" step="1" value="3">
+        </div>
+        <div class="btn-group" id="preGameBtns">
+             <button class="btn sip" id="preSipBtn" onclick="preGameSip()">減らして開始 (飲む)</button>
+             <button class="btn start" id="startBtn" onclick="startGame()">START OPERATION</button>
+        </div>
+        <div class="btn-group" id="inGameBtns" style="display:none;">
+            <button class="btn cheat" id="cheatBtn" onclick="toggleCheat()">CUP: NORMAL</button>
+            <button class="btn sip" id="sipBtn" onclick="takeASip()">一口飲む (残り3)</button>
+        </div>
+        <div style="text-align:center; font-size:0.8rem; color:#888; margin-top:5px;">
+            操作: 矢印キー(傾ける) / マウス / スマホ | 飲む: スペース
         </div>
     </div>
+</div>
 
-    <div class="switch-container">
-        <span style="font-size: 0.9rem;">Cup Shape Model:</span>
-        <button class="toggle-btn" id="modeBtn" onclick="toggleMode()">Normal Cup</button>
-    </div>
-    <p style="font-size: 0.75rem; color: #666; margin-top: 10px;">
-        *Akari Mode activates the "Tsubo-gata" (flask-like) geometry with anti-slosh overhangs.
+<div id="overlay">
+    <h2 class="title" id="overlayTitle">SLOSHING SURVIVAL</h2>
+    <img id="resultImage" src="" alt="Result">
+    <p class="desc" id="overlayDesc">
+        物理法則という名の「悪霊」に挑戦せよ。<br>
+        傾けすぎれば、当然こぼれます。<br>
+        共振をカウンター操作でねじ伏せろ。
     </p>
+    <button class="btn" id="sensorBtn" onclick="requestSensorPermission()" style="display:none; margin-bottom: 15px;">START SENSOR (Mobile)</button>
+    <button class="btn" id="overlayMainBtn" onclick="closeOverlay()">ENTER LAB</button>
 </div>
 
 <script>
-    // --- Physics Configuration ---
-    const canvas = document.getElementById('simCanvas');
-    const ctx = canvas.getContext('2d');
-    
-    // Simulation State
-    let time = 0;
-    let amplitude = 0; // Current wave height
-    let driverFreq = 0; // From slider
-    let isAkariMode = false;
-
-    // Cup Parameters
-    const cup = {
-        x: 160,
-        y: 250,
-        width: 140,
-        height: 180,
-        waterLevel: 100,
-        eigenFreq: 1.8 // Resonance frequency (approx for this size)
+    // --- 設定 ---
+    const CONFIG = {
+        baseTime: 10.0, sipBonus: 5.0,
+        g: 9.8, cupWidth: 150,
+        cupHeight: 160,
+        initialLiquidH: 80, sipAmount: 20, 
+        maxSips: 3,
+        dampingNormal: 0.98, dampingTsubo: 0.94,
+        
+        // ★修正1: 手ブレの質感を変更 (低周波・大振幅化)
+        handTremorFreq: 6,      // 15 -> 6 (不快なビリビリをなくし、うねりに変更)
+        handTremorScale: 0.15,  // 0.12 -> 0.15 (振幅は大きく)
+        driftScale: 0.06,       // ドリフトさらに強化
+        
+        // ★修正2: 傾きリミッター解除 (自滅可能に)
+        keyTiltMax: 0.8,        // 0.35 -> 0.8 (約45度まで傾く)
+        mouseTiltScale: 2.5,    // マウス感度UP
+        
+        defaultMuted: true
     };
 
-    // Physics Loop
-    function updatePhysics() {
-        // Damping factor (Liquid viscosity)
-        const damping = 0.98;
-        
-        // Driving Force (Walking)
-        // If slider is 0, force is 0. Otherwise, sinusoidal force.
-        let force = 0;
-        if (driverFreq > 0.1) {
-            force = Math.sin(time * driverFreq * 5) * 2; // Arbitrary scaling
+    // ★修正3: 共振強度(gain)を全体的にUP
+    const PACES = {
+        1: { hz: 1.2, label: "最徐行", risk: "★★☆☆☆", gain: 0.8, impact: 15 },
+        2: { hz: 2.0, label: "ゆっくり", risk: "★★★★★", gain: 2.5, impact: 30 }, // Gain 1.6 -> 2.5 (即死級)
+        3: { hz: 2.8, label: "普通", risk: "★★★★☆", gain: 1.3, impact: 50 },
+        4: { hz: 3.6, label: "早歩き", risk: "★★★☆☆", gain: 0.8, impact: 65 },
+        5: { hz: 4.4, label: "急ぎ足", risk: "★★★★☆", gain: 0.6, impact: 85 }
+    };
+
+    let gameState = 'TITLE';
+    let timeRemaining = CONFIG.baseTime;
+    let lastTime = 0;
+    let isTsuboMode = false;
+    let sipStock = CONFIG.maxSips;
+    let currentLiquidH = CONFIG.initialLiquidH;
+    let currentPace = PACES[3];
+    let isMuted = CONFIG.defaultMuted;
+    let startTime = 0;
+
+    let liquidAmp = 0; liquidVel = 0;
+    let cupTilt = 0; let targetTilt = 0; let cupAngVel = 0;
+    let keyTilt = 0; let mouseTilt = 0; let deviceTilt = 0;
+    let handNoise = 0;
+
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const statusDisplay = document.getElementById('statusDisplay');
+    const paceSlider = document.getElementById('paceSlider');
+    const paceLabel = document.getElementById('paceLabel');
+    const riskMeter = document.getElementById('riskMeter');
+    const cheatBtn = document.getElementById('cheatBtn');
+    const sipBtn = document.getElementById('sipBtn');
+    const preSipBtn = document.getElementById('preSipBtn');
+    const controlsPanel = document.getElementById('controls');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayDesc = document.getElementById('overlayDesc');
+    const resultImage = document.getElementById('resultImage');
+    const overlayMainBtn = document.getElementById('overlayMainBtn');
+    const sensorBtn = document.getElementById('sensorBtn');
+    const muteBtn = document.getElementById('muteBtn');
+    const preGameBtns = document.getElementById('preGameBtns');
+    const inGameBtns = document.getElementById('inGameBtns');
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const successAudio = new Audio('success.mp3');
+    const failureAudio = new Audio('failure.mp3');
+    successAudio.volume = 0.4; failureAudio.volume = 0.4;
+
+    function init() {
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        setupInputs();
+        updatePaceUI(3);
+        updateMuteUI();
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && typeof DeviceMotionEvent.requestPermission === 'function') {
+            sensorBtn.style.display = 'inline-block';
         }
-
-        // Resonance Logic (Simplified Driven Harmonic Oscillator)
-        // If driverFreq is close to eigenFreq, amplitude grows significantly
-        let resonanceFactor = 1 / (Math.abs(cup.eigenFreq - driverFreq) + 0.1);
-        
-        // Cap resonance factor to avoid explosion, but allow it to be high
-        if (resonanceFactor > 6) resonanceFactor = 6;
-
-        // Target Amplitude based on drive
-        let targetAmp = force * resonanceFactor * 15;
-
-        // Akari Mode: The "Overhang" reduces effective amplitude at the rim
-        if (isAkariMode) {
-            targetAmp *= 0.3; // Significantly dampen the splash at the rim
-        }
-
-        // Smoothly approach target amplitude (Simulation of inertia)
-        amplitude = amplitude * 0.9 + targetAmp * 0.1;
-
-        // Spill Detection
-        if (Math.abs(amplitude) > 60) {
-            document.getElementById('warningText').style.opacity = 1;
-            // Shake the canvas slightly for effect
-            canvas.style.transform = `translate(${Math.random()*4-2}px, ${Math.random()*4-2}px)`;
-        } else {
-            document.getElementById('warningText').style.opacity = 0;
-            canvas.style.transform = 'none';
-        }
-
-        time += 0.05;
+        requestAnimationFrame(update);
     }
 
-    // --- Rendering ---
+    function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+    }
+
+    function setupInputs() {
+        document.addEventListener('mousemove', (e) => {
+            // マウス感度強化
+            mouseTilt = ((e.clientX / window.innerWidth) - 0.5) * CONFIG.mouseTiltScale;
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft') keyTilt = -CONFIG.keyTiltMax;
+            if (e.code === 'ArrowRight') keyTilt = CONFIG.keyTiltMax;
+            if (e.code === 'Space' && gameState === 'PLAYING') takeASip();
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') keyTilt = 0;
+        });
+        paceSlider.addEventListener('input', (e) => updatePaceUI(e.target.value));
+    }
+
+    function requestSensorPermission() {
+        if (typeof DeviceMotionEvent.requestPermission === 'function') {
+            DeviceMotionEvent.requestPermission().then(res => {
+                if (res === 'granted') {
+                    window.addEventListener('deviceorientation', (e) => {
+                        if (e.gamma) deviceTilt = (e.gamma / 90) * 2.5; // スマホ感度も強化
+                    });
+                    sensorBtn.style.display = 'none';
+                }
+            }).catch(console.error);
+        }
+    }
+
+    function updatePaceUI(val) {
+        currentPace = PACES[val];
+        paceLabel.textContent = currentPace.label;
+        riskMeter.textContent = currentPace.risk;
+        if(currentPace.gain > 1.2) riskMeter.style.color = 'var(--danger)';
+        else if(currentPace.impact >= 50) riskMeter.style.color = '#ff8800';
+        else riskMeter.style.color = 'var(--accent)';
+    }
+
+    function toggleMute() {
+        isMuted = !isMuted;
+        updateMuteUI();
+        if(!isMuted && audioCtx.state === 'suspended') audioCtx.resume();
+    }
+    function updateMuteUI() {
+        muteBtn.textContent = isMuted ? "🔇" : "🔊";
+        muteBtn.style.opacity = isMuted ? "0.6" : "1.0";
+    }
+
+    function toggleCheat() {
+        isTsuboMode = !isTsuboMode;
+        cheatBtn.textContent = isTsuboMode ? "CUP: TSUBO" : "CUP: NORMAL";
+        cheatBtn.classList.toggle('active');
+    }
+
+    function preGameSip() {
+        currentLiquidH -= CONFIG.sipAmount;
+        if (currentLiquidH < 20) currentLiquidH = 20;
+        playSipSound();
+        preSipBtn.textContent = "さらに減らす";
+        draw(); 
+    }
+
+    function takeASip() {
+        if (sipStock <= 0 || gameState !== 'PLAYING') return;
+        sipStock--;
+        sipBtn.textContent = `一口飲む (残り${sipStock})`;
+        if(sipStock === 0) sipBtn.disabled = true;
+
+        currentLiquidH -= CONFIG.sipAmount;
+        timeRemaining += CONFIG.sipBonus;
+        timerDisplay.style.color = 'var(--gold)';
+        setTimeout(() => timerDisplay.style.color = '', 500);
+        playSipSound();
+        statusDisplay.textContent = "質量変化: 共振点シフト";
+    }
+
+    function closeOverlay() {
+        overlay.style.opacity = '0';
+        setTimeout(() => { overlay.style.display = 'none'; overlay.style.opacity = '1'; }, 500);
+        resetGameParams();
+        gameState = 'READY';
+        statusDisplay.textContent = "READY TO START";
+        preGameBtns.style.display = 'flex';
+        inGameBtns.style.display = 'none';
+    }
+
+    function resetGameParams() {
+        timeRemaining = CONFIG.baseTime;
+        liquidAmp = 0; liquidVel = 0; cupTilt = 0; cupAngVel = 0;
+        sipStock = CONFIG.maxSips;
+        currentLiquidH = CONFIG.initialLiquidH;
+        sipBtn.disabled = false;
+        sipBtn.textContent = `一口飲む (残り${sipStock})`;
+        preSipBtn.textContent = "減らして開始 (飲む)";
+    }
+
+    function startGame() {
+        if (audioCtx.state === 'suspended' && !isMuted) audioCtx.resume();
+        gameState = 'PLAYING';
+        startTime = performance.now();
+        preGameBtns.style.display = 'none';
+        inGameBtns.style.display = 'flex';
+        stepLoop();
+    }
+
+    function stepLoop() {
+        if (gameState !== 'PLAYING') return;
+        applyStepForce();
+        playFootstepSound();
+        const baseInterval = 1000 / currentPace.hz;
+        const jitter = (Math.random() - 0.5) * baseInterval * 0.25;
+        setTimeout(stepLoop, baseInterval + jitter);
+    }
+
+    function applyStepForce() {
+        const hFactor = currentLiquidH / CONFIG.initialLiquidH; 
+        const currentEigenFreq = 2.0 * Math.sqrt(hFactor); 
+        const freqDiff = Math.abs(currentPace.hz - currentEigenFreq);
+        
+        const resonanceEfficiency = 0.1 / (freqDiff + 0.05) * currentPace.gain;
+        const rawImpact = currentPace.impact * (0.8 + Math.random() * 0.4);
+        
+        const elapsedTime = (performance.now() - startTime) / 1000;
+        const warmUpFactor = Math.min(1.0, elapsedTime / 2.0);
+
+        const dir = Math.random() > 0.5 ? 1 : -1;
+        const force = dir * ( (50 * resonanceEfficiency) + rawImpact ) * warmUpFactor;
+        
+        liquidVel += force;
+
+        if (rawImpact > 45) {
+            statusDisplay.textContent = "⚠️ 高エネルギー衝撃! ⚠️";
+            statusDisplay.style.color = '#ff8800';
+        } else if (resonanceEfficiency > 1.5) {
+            statusDisplay.textContent = "⚠️ 共振危険域! ⚠️";
+            statusDisplay.style.color = 'var(--danger)';
+        } else {
+            statusDisplay.textContent = "WALKING...";
+            statusDisplay.style.color = 'var(--accent)';
+        }
+    }
+
+    function update(timestamp) {
+        const dt = (timestamp - lastTime) / 1000 || 0;
+        lastTime = timestamp;
+
+        if (gameState === 'PLAYING') {
+            updatePhysics(dt);
+            updateTimer(dt);
+        } else if (gameState === 'READY') {
+             updatePhysicsReady(dt);
+        }
+        draw();
+        requestAnimationFrame(update);
+    }
+
+    function updateTimer(dt) {
+        timeRemaining -= dt;
+        if (timeRemaining <= 0) {
+            timeRemaining = 0; endGame('SUCCESS');
+        }
+        timerDisplay.textContent = timeRemaining.toFixed(2);
+    }
+
+    function updatePhysicsReady(dt) {
+        const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
+        targetTilt = rawTilt; 
+        cupTilt += (targetTilt - cupTilt) * 6 * dt; 
+        liquidAmp *= 0.9; 
+    }
+
+    function updatePhysics(dt) {
+        if (dt > 0.1) return;
+
+        handNoise = (Math.sin(lastTime * CONFIG.handTremorFreq) * CONFIG.handTremorScale) + 
+                    (Math.sin(lastTime * 0.5) * CONFIG.driftScale);
+        const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
+        targetTilt = rawTilt + handNoise;
+
+        const prevTilt = cupTilt;
+        cupTilt += (targetTilt - cupTilt) * 6 * dt; 
+        cupAngVel = (cupTilt - prevTilt) / dt;
+
+        const k = 30;
+        let damping = isTsuboMode ? CONFIG.dampingTsubo : CONFIG.dampingNormal;
+        
+        const wallForce = -cupAngVel * 60; 
+        const gravityForce = Math.sin(cupTilt) * 200; 
+        if (isTsuboMode && Math.abs(liquidAmp) > 45) damping *= 0.85; 
+
+        const acc = -k * liquidAmp + gravityForce + wallForce;
+        liquidVel += acc * dt;
+        liquidVel *= Math.pow(damping, dt * 60);
+        liquidAmp += liquidVel * dt;
+
+        // ★修正4: こぼれ判定の厳密化
+        // 振幅(liquidAmp)だけでなく、カップの傾きによる液面の上昇も計算
+        // 左端または右端のY座標が 0 (コップ縁) を超えたらアウト
+        const w = CONFIG.cupWidth / 2;
+        const tanTilt = Math.tan(-cupTilt);
+        // 液面左端の高さ(Topからの距離。負なら溢れてる)
+        const yLeft = (-currentLiquidH) - liquidAmp + (-w * tanTilt);
+        // 液面右端の高さ
+        const yRight = (-currentLiquidH) + liquidAmp + (w * tanTilt);
+
+        // yが0より大きい（画面下方向）ならセーフ。0より小さい（画面上方向）なら溢れ。
+        // キャンバス座標系では上が負、下が正。コップ縁は y=0。
+        // つまり yLeft < 0 or yRight < 0 でアウト。
+        if (yLeft > 0 || yRight > 0) { // y軸反転しているので、正の値(0より下)ならアウトではなく...
+                                       // 待って、liquidTopY = -currentLiquidH (例:-80)。
+                                       // コップ縁は 0。液面が盛り上がって 0 に近づく。
+                                       // 座標系: 縁=0, 底=160. 液面=-80.
+                                       // 溢れる条件: 液面Y > 0 ではなく 液面Y > 0 (底方向) ... 逆だ。
+                                       // キャンバスは上が負、下が正。縁(0)より上に行くと負になる。
+                                       // つまり yLeft > 0 (下) はセーフ。 yLeft < 0 (上) は溢れ? 
+                                       // いや、描画コードを見ると `ctx.lineTo(x, y)`
+                                       // y = -currentLiquidH + wave.
+                                       // 縁は y=0. つまり y > 0 (正) だとコップの中(底側)。 y < 0 (負) だと縁より上？
+                                       // 違う、底が描画で (0,0)から下に描いてる？
+                                       // defineCupPath: move(-w, -h). 縁は -h (-160).
+                                       // 液面初期値: -80.
+                                       // つまり、y < -160 になったら溢れ。
+                                       // しかしdraw関数では ctx.translate(cx, cy) している。
+                                       // defineCupPathでは y=0 が底になっているように見える (lineTo(w,0))
+                                       // でも moveTo(-w, -h) してる。
+                                       // あ、通常コップ: move(-w, -h) ... lineTo(-bot, 0).
+                                       // つまり y=0 が底、y=-h が縁。
+                                       // 液面計算: liquidTopY = -currentLiquidH (-80).
+                                       // 溢れる条件: 液面Y < -CONFIG.cupHeight (-160).
+                                       
+           // 再確認: draw関数内
+           // ctx.moveTo(-w, 100); // 底の描画用ダミー?
+           // defineCupPath: NORMAL: moveTo(-w, -h)... lineTo(bot, 0).
+           // つまり y=0 が底。 y=-160 が縁。
+           // 液面: -80 スタート。
+           // 溢れる条件: y < -160.
+
+           const rimY = -CONFIG.cupHeight;
+           if (yLeft < rimY || yRight < rimY) {
+               endGame('FAILURE');
+           }
+        }
+    }
+
+    function endGame(result) {
+        gameState = 'END';
+        controlsPanel.style.opacity = '1';
+        overlay.style.display = 'flex';
+        resultImage.style.display = 'block';
+        sensorBtn.style.display = 'none';
+        
+        overlayMainBtn.textContent = "RETRY CHALLENGE";
+
+        if (result === 'SUCCESS') {
+            overlayTitle.textContent = "MISSION CLEAR!";
+            overlayTitle.style.color = 'var(--accent)';
+            overlayDesc.innerHTML = "お見事！物理法則を完全に掌握しましたね。<br>計算通りの勝利です。";
+            resultImage.src = "success.png";
+            playWinSound();
+        } else {
+            overlayTitle.textContent = "SPILL DETECTED!";
+            overlayTitle.style.color = 'var(--danger)';
+            overlayDesc.innerHTML = "残念...物理の魔物に飲み込まれました。<br>制御不能なエネルギーの暴走です。";
+            resultImage.src = "failure.png";
+            playFailSound();
+            if (navigator.vibrate) navigator.vibrate(300);
+        }
+    }
+
     function draw() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const cx = canvas.width / 2;
+        const cy = canvas.height / 2 + 80;
 
-        // 1. Draw Cup
-        ctx.strokeStyle = isAkariMode ? '#00f2ff' : '#aaa'; // Cyan for Akari Mode
-        ctx.lineWidth = 4;
-        ctx.lineCap = 'round';
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(cupTilt);
+
+        function defineCupPath(isClip) {
+            ctx.beginPath();
+            const w = CONFIG.cupWidth / 2;
+            const h = CONFIG.cupHeight;
+            
+            if (isTsuboMode) {
+                ctx.moveTo(-w * 0.6, -h);
+                ctx.bezierCurveTo(-w * 0.6, -h * 0.6, -w * 1.2, -h * 0.3, -w, 0);
+                ctx.lineTo(w, 0);
+                ctx.bezierCurveTo(w * 1.2, -h * 0.3, w * 0.6, -h * 0.6, w * 0.6, -h);
+                if (isClip) ctx.closePath();
+            } else {
+                const bottomW = w * 0.7;
+                ctx.moveTo(-w, -h); 
+                ctx.lineTo(-bottomW, 0); 
+                ctx.lineTo(bottomW, 0);  
+                ctx.lineTo(w, -h); 
+                if (isClip) ctx.closePath(); 
+            }
+        }
+
+        ctx.save();
+        defineCupPath(true); 
+        ctx.clip(); 
+
+        ctx.fillStyle = isTsuboMode ? 'rgba(0, 242, 255, 0.7)' : 'rgba(139, 69, 19, 0.9)';
+        
         ctx.beginPath();
+        const w = CONFIG.cupWidth / 2;
+        const h = CONFIG.cupHeight;
+        const liquidTopY = -currentLiquidH;
+        const tanTilt = Math.tan(-cupTilt);
+        const bottomW = isTsuboMode ? w : w * 0.7; 
+
+        // 左端・右端のY座標（判定用と同じロジックで描画）
+        const yLeft = liquidTopY - liquidAmp + (-w * tanTilt);
+        const yRight = liquidTopY + liquidAmp + (w * tanTilt);
+
+        ctx.moveTo(isTsuboMode ? -w : -bottomW, 0); // 底
+        ctx.lineTo(-w, yLeft); // 左液面
+        ctx.lineTo(w, yRight); // 右液面
+        ctx.lineTo(isTsuboMode ? w : bottomW, 0); // 底
         
-        if (isAkariMode) {
-            // Tsubo (Flask) Shape
-            ctx.moveTo(cup.x - cup.width/2, cup.y - cup.height/2); // Top Left
-            // Curve inward (Neck)
-            ctx.bezierCurveTo(
-                cup.x - cup.width/3, cup.y - cup.height/2 + 20, 
-                cup.x - cup.width/1.8, cup.y, 
-                cup.x - cup.width/2, cup.y + cup.height/2
-            );
-            ctx.lineTo(cup.x + cup.width/2, cup.y + cup.height/2); // Bottom
-            // Right Side Mirror
-            ctx.bezierCurveTo(
-                cup.x + cup.width/1.8, cup.y, 
-                cup.x + cup.width/3, cup.y - cup.height/2 + 20, 
-                cup.x + cup.width/2, cup.y - cup.height/2
-            );
-        } else {
-            // Normal Cylinder Cup
-            ctx.moveTo(cup.x - cup.width/2, cup.y - cup.height/2);
-            ctx.lineTo(cup.x - cup.width/2, cup.y + cup.height/2);
-            ctx.lineTo(cup.x + cup.width/2, cup.y + cup.height/2);
-            ctx.lineTo(cup.x + cup.width/2, cup.y - cup.height/2);
-        }
-        ctx.stroke();
-
-        // 2. Draw Liquid
-        ctx.fillStyle = isAkariMode ? 'rgba(0, 242, 255, 0.6)' : 'rgba(255, 255, 255, 0.8)'; // Coffee or Cyber Fluid
-        if (!isAkariMode) ctx.fillStyle = 'rgba(196, 164, 132, 0.9)'; // Coffee color for normal
-
-        ctx.beginPath();
-        // Liquid Surface (Sinusoidal wave)
-        const surfaceY = cup.y + cup.height/2 - cup.waterLevel;
-        
-        let leftX = cup.x - cup.width/2 + 4;
-        let rightX = cup.x + cup.width/2 - 4;
-
-        if (isAkariMode) {
-             // Adjust widths for Tsubo shape roughly
-             leftX += 10; rightX -= 10; 
-        }
-
-        ctx.moveTo(leftX, surfaceY + amplitude); // Start at left surface
-        
-        // Wave drawing
-        for (let x = leftX; x <= rightX; x+=5) {
-            // Simple tilt effect: linear interpolation of amplitude across width
-            let progress = (x - leftX) / (rightX - leftX); // 0 to 1
-            let waveHeight = amplitude * (progress - 0.5) * 2; // -Amp to +Amp
-            ctx.lineTo(x, surfaceY + waveHeight);
-        }
-
-        // Bottom of liquid
-        ctx.lineTo(rightX, cup.y + cup.height/2 - 4);
-        ctx.lineTo(leftX, cup.y + cup.height/2 - 4);
         ctx.closePath();
         ctx.fill();
+        ctx.restore();
 
-        // 3. Draw Resonance "Ghost" (Guide)
-        // Show where the "Dangerous Frequency" is
-        /*
-        ctx.fillStyle = 'rgba(255, 0, 85, 0.1)';
-        ctx.fillRect(10, 10, (amplitude/60)*100, 5); 
-        */
-    }
-
-    // --- Main Loop ---
-    function animate() {
-        updatePhysics();
-        draw();
-        requestAnimationFrame(animate);
-    }
-
-    // --- Interaction ---
-    const slider = document.getElementById('speedSlider');
-    const freqDisplay = document.getElementById('freqDisplay');
-    const modeBtn = document.getElementById('modeBtn');
-
-    slider.addEventListener('input', (e) => {
-        driverFreq = parseFloat(e.target.value);
-        freqDisplay.textContent = driverFreq.toFixed(1) + " Hz";
+        ctx.strokeStyle = isTsuboMode ? 'var(--accent)' : '#aaa';
+        ctx.lineWidth = 6;
+        ctx.lineCap = 'round';
+        defineCupPath(false); 
+        ctx.stroke();
         
-        // Visual feedback for resonance zone
-        if (Math.abs(driverFreq - cup.eigenFreq) < 0.3) {
-            freqDisplay.style.color = 'var(--danger-color)';
-            freqDisplay.textContent += " (DANGER!)";
-        } else {
-            freqDisplay.style.color = '#fff';
-        }
-    });
-
-    function toggleMode() {
-        isAkariMode = !isAkariMode;
-        if (isAkariMode) {
-            modeBtn.textContent = "Akari's Cup (Tsubo)";
-            modeBtn.classList.add('active');
-        } else {
-            modeBtn.textContent = "Normal Cup";
-            modeBtn.classList.remove('active');
-        }
+        ctx.restore();
     }
 
-    // Start
-    animate();
+    function playSound(type) {
+        if(isMuted) return;
+        if(audioCtx.state === 'suspended') audioCtx.resume();
+        
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        const now = audioCtx.currentTime;
+        
+        if (type === 'step') {
+            osc.frequency.setValueAtTime(100, now);
+            osc.frequency.exponentialRampToValueAtTime(30, now + 0.1);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.1);
+            osc.start(); osc.stop(now + 0.1);
+        } else if (type === 'sip') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.linearRampToValueAtTime(800, now + 0.3);
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.4);
+            osc.start(); osc.stop(now + 0.4);
+        }
+    }
+    function playFootstepSound() { playSound('step'); }
+    function playSipSound() { playSound('sip'); }
+    function playWinSound() { if(!isMuted) { successAudio.currentTime = 0; successAudio.play().catch(e=>{}); } }
+    function playFailSound() { if(!isMuted) { failureAudio.currentTime = 0; failureAudio.play().catch(e=>{}); } }
 
+    init();
 </script>
 </body>
 </html>
