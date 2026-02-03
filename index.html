@@ -20,7 +20,6 @@
         .timer { font-size: 3rem; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0 0 10px var(--accent); transition: color 0.3s; }
         .status { font-size: 0.9rem; letter-spacing: 2px; color: var(--accent); margin-top: 5px; }
         
-        /* ペナルティ演出用アニメーション */
         @keyframes timePenalty {
             0% { transform: scale(1); color: var(--text); }
             20% { transform: scale(1.4); color: var(--danger); text-shadow: 0 0 20px var(--danger); } 
@@ -120,7 +119,7 @@
         </button>
 
         <div style="text-align:center; font-size:0.8rem; color:#888; margin-top:5px;">
-            操作: 矢印キー(ゆっくり) / マウス / スマホ(手ブレ有) | 飲む: スペース
+            操作: 矢印キー(微調整) / マウス(直感) / スマホ | 飲む: スペース
         </div>
     </div>
 </div>
@@ -144,25 +143,25 @@
         g: 9.8, 
         cupWidth: 150,
         cupHeight: 160,
-        initialLiquidH: 130, // 8割スタート
+        initialLiquidH: 130, 
         sipAmount: 25, 
         maxSips: 3,
-        sipPenalties: [5.0, 10.0, 15.0], // 飲むごとのペナルティ秒数
+        sipPenalties: [5.0, 10.0, 15.0], 
         
         dampingNormal: 0.99, 
         dampingTsubo: 0.94,
         tremorBaseAmp: 0.04, 
         driftWalkSpeed: 0.002,
         
-        // 入力感度・慣性設定
+        // 入力感度
         maxTiltAngle: 0.52, 
-        tiltSpeed: 0.52 / 2.0, // 矢印キー用基準速度
+        tiltSpeed: 0.52 / 2.0,
         mouseTiltScale: 2.0,    
         
         defaultMuted: true
     };
 
-    let gameState = 'TITLE'; // TITLE, READY, COUNTDOWN, PLAYING, DYING, END
+    let gameState = 'TITLE'; 
     let timeRemaining = CONFIG.baseTime;
     let countdownTime = 3.0; // カウントダウン用
     let lastTime = 0;
@@ -178,16 +177,17 @@
 
     // 物理・角度変数
     let liquidAmp = 0; liquidVel = 0;
-    let currentTilt = 0; // 現在の実際のカップ角度
-    let targetTilt = 0;  // 入力が目指している角度
-    let noiseTilt = 0;   // 手ブレなど
-    let driftOffset = 0; // 歩行ドリフト
+    let currentTilt = 0; 
+    let targetTilt = 0;  
+    let noiseTilt = 0;   
+    let driftOffset = 0; 
 
     // 入力状態
-    let keyInputDir = 0; // -1, 0, 1
-    let mouseTargetRatio = 0; // -1.0 ~ 1.0
+    let keyInputDir = 0; 
+    let mouseTargetRatio = 0; 
+    let activeInputMethod = 'MOUSE'; // 'MOUSE' or 'KEYBOARD' (競合回避用)
     let gyroData = { gamma: 0 };
-    let gyroOffset = { gamma: 0 }; // キャリブレーション用
+    let gyroOffset = { gamma: 0 }; 
 
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
@@ -212,7 +212,6 @@
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     
-    // 正しい音声ファイル名
     const successAudio = new Audio('success.mp3'); 
     const failureAudio = new Audio('failure.mp3'); 
     successAudio.volume = 0.4; failureAudio.volume = 0.4;
@@ -242,11 +241,18 @@
     }
 
     function setupInputs() {
+        // マウス移動: モードをMOUSEにしてターゲット更新
         document.addEventListener('mousemove', (e) => {
+            activeInputMethod = 'MOUSE';
             const ratio = (e.clientX / window.innerWidth) * 2 - 1; 
             mouseTargetRatio = Math.max(-1, Math.min(1, ratio));
         });
+
+        // キー操作: モードをKEYBOARDにして入力受付
         document.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+                activeInputMethod = 'KEYBOARD';
+            }
             if (e.code === 'ArrowLeft') keyInputDir = -1;
             if (e.code === 'ArrowRight') keyInputDir = 1;
             if (e.code === 'Space' && gameState === 'PLAYING') takeASip();
@@ -264,6 +270,7 @@
 
     function handleOrientation(e) {
         gyroData.gamma = e.gamma || 0;
+        activeInputMethod = 'GYRO'; // ジャイロが入ったらジャイロ優先
         calibBtn.style.display = 'inline-block';
     }
 
@@ -395,18 +402,18 @@
 
     function startGame() {
         if (audioCtx.state === 'suspended' && !isMuted) audioCtx.resume();
-        gameState = 'COUNTDOWN'; // カウントダウン開始
+        gameState = 'COUNTDOWN'; // カウントダウンへ遷移
         countdownTime = 3.0;
         preGameBtns.style.display = 'none';
         inGameBtns.style.display = 'flex';
         statusDisplay.textContent = "LEVEL YOUR CUP!";
     }
 
-    // 実際の歩行開始
     function startWalking() {
         gameState = 'PLAYING';
         startTime = performance.now();
         stepLoop();
+        statusDisplay.textContent = "WALKING...";
     }
 
     function stepLoop() {
@@ -469,6 +476,7 @@
         } else if (gameState === 'READY') {
              updateInput(dt, timestamp);
              liquidAmp *= 0.95; liquidVel *= 0.9;
+             // READY中も入力は受け付ける
              currentTilt = targetTilt; 
         }
         draw();
@@ -484,32 +492,34 @@
     }
 
     function updateInput(dt, time) {
-        // --- 修正: 矢印キーの速度を減速 (0.5倍) ---
-        // ユーザー指示「反応が速すぎるから修正して」
-        if (keyInputDir !== 0) {
-            targetTilt += keyInputDir * (CONFIG.tiltSpeed * 0.5) * dt;
+        // --- モードによる分岐処理 ---
+        
+        if (activeInputMethod === 'KEYBOARD') {
+            // キーボード: 相対移動（速度0.4倍）
+            if (keyInputDir !== 0) {
+                targetTilt += keyInputDir * (CONFIG.tiltSpeed * 0.4) * dt;
+            }
+            // 範囲制限
+            targetTilt = Math.max(-CONFIG.maxTiltAngle, Math.min(CONFIG.maxTiltAngle, targetTilt));
+        } 
+        else if (activeInputMethod === 'MOUSE') {
+            // マウス: 絶対位置への追従（慣性なし、ダイレクト）
+            const mouseGoal = mouseTargetRatio * CONFIG.maxTiltAngle;
+            // 素早く追従させるため targetTilt を mouseGoal に強制一致（もしくは非常に速く補間）
+            targetTilt = mouseGoal;
+        }
+        else if (activeInputMethod === 'GYRO') {
+            // ジャイロ: 絶対位置（キャリブレーション考慮）
+            if (gyroData.gamma !== 0) {
+                let gyroTilt = (gyroData.gamma - gyroOffset.gamma) * (Math.PI / 180);
+                targetTilt = gyroTilt;
+            }
         }
 
-        // --- マウス操作 ---
-        const mouseGoal = mouseTargetRatio * CONFIG.maxTiltAngle;
-        if (mouseTargetRatio !== 0 || Math.abs(mouseGoal - targetTilt) > 0.01) {
-             // マウスは即座に反映したいので step を大きく取る
-             const step = 20.0 * dt; 
-             if (mouseGoal > targetTilt) targetTilt = Math.min(targetTilt + step, mouseGoal);
-             else if (mouseGoal < targetTilt) targetTilt = Math.max(targetTilt - step, mouseGoal);
-        }
-
-        if (gyroData.gamma !== 0) {
-            let gyroTilt = (gyroData.gamma - gyroOffset.gamma) * (Math.PI / 180);
-            targetTilt = gyroTilt; 
-        }
-
-        targetTilt = Math.max(-CONFIG.maxTiltAngle, Math.min(CONFIG.maxTiltAngle, targetTilt));
-
-        // --- 修正: 慣性(重み)を削除 ---
-        // ユーザー指示「コップの重みは不要」→ targetTiltをそのままcurrentTiltへ
+        // 共通処理: 慣性削除（currentTiltに直反映）
         currentTilt = targetTilt;
 
+        // ノイズ付与
         const t = time / 1000;
         const wave1 = Math.sin(t * 1.5);
         const wave2 = Math.sin(t * 4.2 + 1.0);
@@ -543,7 +553,7 @@
         liquidVel *= Math.pow(damping, dt * 60);
         liquidAmp += liquidVel * dt;
 
-        // COUNTDOWN中もこぼれ判定は有効（水平にするのに失敗したらこぼれる）
+        // COUNTDOWN中もこぼれ判定は有効
         if (gameState === 'PLAYING' || gameState === 'COUNTDOWN') {
             const w = CONFIG.cupWidth / 2;
             const tanTilt = Math.tan(-totalTilt);
@@ -679,7 +689,7 @@
 
         ctx.restore();
 
-        // --- 追加: カウントダウン表示 ---
+        // --- 追加: カウントダウン & FAILURE 表示 ---
         if (gameState === 'COUNTDOWN') {
             ctx.save();
             ctx.fillStyle = 'white';
@@ -690,6 +700,19 @@
             ctx.shadowBlur = 20;
             const count = Math.ceil(countdownTime);
             ctx.fillText(count > 0 ? count : "GO!", canvas.width/2, canvas.height/2);
+            ctx.restore();
+        } else if (gameState === 'DYING') {
+            ctx.save();
+            ctx.fillStyle = '#ff3366';
+            ctx.font = 'bold 80px "Segoe UI", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(255, 50, 50, 0.8)';
+            ctx.shadowBlur = 30;
+            ctx.fillText("FAILURE", canvas.width/2, canvas.height/2);
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 2;
+            ctx.strokeText("FAILURE", canvas.width/2, canvas.height/2);
             ctx.restore();
         }
     }
