@@ -505,11 +505,19 @@
                 ctx.bezierCurveTo(w * 1.2, -h * 0.3, w * 0.6, -h * 0.6, w * 0.6, -h);
                 if (isClip) ctx.closePath();
             } else {
-                const bottomW = w * 0.7;
+                // --- 変更箇所: Uの字型 ---
                 ctx.moveTo(-w, -h); 
-                ctx.lineTo(-bottomW, 0); 
-                ctx.lineTo(bottomW, 0);  
-                ctx.lineTo(w, -h); 
+                // 左側面：上8割くらいまで垂直
+                ctx.lineTo(-w, -h * 0.2); 
+                // 左下：丸みをつける
+                ctx.quadraticCurveTo(-w, 0, -w * 0.5, 0);
+                // 底面：平ら
+                ctx.lineTo(w * 0.5, 0);
+                // 右下：丸みをつける
+                ctx.quadraticCurveTo(w, 0, w, -h * 0.2);
+                // 右側面：垂直に上がる
+                ctx.lineTo(w, -h);
+                
                 if (isClip) ctx.closePath(); 
             }
         }
@@ -525,15 +533,16 @@
         const h = CONFIG.cupHeight;
         const liquidTopY = -currentLiquidH;
         const tanTilt = Math.tan(-cupTilt);
-        const bottomW = isTsuboMode ? w : w * 0.7; 
-
+        // U字型になってもこぼれ判定と描画幅は変えない（難易度維持）
+        // 見た目上の幅合わせのため w をそのまま使う
+        
         const yLeft = liquidTopY - liquidAmp + (-w * tanTilt);
         const yRight = liquidTopY + liquidAmp + (w * tanTilt);
 
-        ctx.moveTo(isTsuboMode ? -w : -bottomW, 0); 
+        ctx.moveTo(isTsuboMode ? -w : -w, 0); 
         ctx.lineTo(-w, yLeft); 
         ctx.lineTo(w, yRight); 
-        ctx.lineTo(isTsuboMode ? w : bottomW, 0); 
+        ctx.lineTo(isTsuboMode ? w : w, 0); 
         
         ctx.closePath();
         ctx.fill();
@@ -544,6 +553,25 @@
         ctx.lineCap = 'round';
         defineCupPath(false); 
         ctx.stroke();
+
+        // --- 追加: 取っ手を描画 (通常モードのみ) ---
+        if (!isTsuboMode) {
+            ctx.beginPath();
+            const w = CONFIG.cupWidth / 2;
+            const h = CONFIG.cupHeight;
+            
+            // 壁の正確な位置（右側面は x = w）
+            // 開始点を壁の表面(w)に合わせることでめり込みを解消
+            ctx.moveTo(w, -h * 0.8);
+            
+            // 制御点のY座標を接続点と同じ高さにすることで、水平（0度）に接続させる
+            ctx.bezierCurveTo(
+                w + 50, -h * 0.8,  // CP1 (Startと同じY = 水平に出る)
+                w + 50, -h * 0.3,  // CP2 (Endと同じY = 水平に入る)
+                w, -h * 0.3        // End
+            );
+            ctx.stroke();
+        }
         
         ctx.restore();
     }
