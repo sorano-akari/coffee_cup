@@ -10,15 +10,25 @@
             margin: 0; background: var(--bg); color: var(--text);
             font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none;
             display: flex; flex-direction: column; align-items: center; height: 100vh;
+            user-select: none; -webkit-user-select: none;
         }
         canvas { position: absolute; top: 0; left: 0; z-index: 10; }
         
         /* UI Layer */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20; pointer-events: none; }
         .top-bar { position: absolute; top: 20px; width: 100%; text-align: center; pointer-events: auto; }
-        .timer { font-size: 3rem; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0 0 10px var(--accent); }
+        .timer { font-size: 3rem; font-weight: bold; font-family: 'Courier New', monospace; text-shadow: 0 0 10px var(--accent); transition: color 0.3s; }
         .status { font-size: 0.9rem; letter-spacing: 2px; color: var(--accent); margin-top: 5px; }
         
+        /* ペナルティ演出用アニメーション */
+        @keyframes timePenalty {
+            0% { transform: scale(1); color: var(--text); }
+            20% { transform: scale(1.4); color: var(--danger); text-shadow: 0 0 20px var(--danger); } 
+            80% { transform: scale(1.2); color: var(--danger); }
+            100% { transform: scale(1); color: var(--text); }
+        }
+        .timer.penalty { animation: timePenalty 0.8s ease-out; }
+
         .mute-btn {
             background: rgba(0, 0, 0, 0.5); border: 1px solid var(--accent); color: var(--accent);
             border-radius: 50%; width: 40px; height: 40px; font-size: 1.2rem; cursor: pointer;
@@ -44,16 +54,23 @@
             transition: 0.3s; font-family: inherit; flex: 1; min-width: 100px; text-align: center;
         }
         .btn:hover { background: var(--accent); color: #000; box-shadow: 0 0 15px var(--accent); }
+        .btn:active { transform: scale(0.95); }
         .btn.cheat { border-color: var(--gold); color: var(--gold); }
         .btn.cheat.active { background: var(--gold); color: #000; box-shadow: 0 0 15px var(--gold); }
         .btn.sip { border-color: #fff; color: #fff; }
-        .btn.sip:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn.sip:disabled { opacity: 0.5; cursor: not-allowed; border-color: #555; color: #555; }
         
         .btn.hazard { border-color: var(--danger); color: var(--danger); font-weight: bold; }
         .btn.hazard:hover { background: var(--danger); color: #000; box-shadow: 0 0 20px var(--danger); }
 
         .btn.start { background: var(--accent); color: #000; font-weight: bold; border: none; box-shadow: 0 0 10px var(--accent); }
         .btn.start:hover { transform: scale(1.05); }
+
+        .calib-btn {
+            font-size: 0.75rem; border: 1px dashed var(--accent); padding: 8px; margin-top: 5px; width: 100%;
+            background: rgba(0,0,0,0.3); color: var(--accent); cursor: pointer; border-radius: 10px;
+        }
+        .calib-btn:hover { background: rgba(0, 242, 255, 0.2); }
 
         /* Overlay & Result */
         #overlay {
@@ -62,7 +79,7 @@
             flex-direction: column; align-items: center; justify-content: center;
             text-align: center; padding: 20px; transition: opacity 0.5s;
         }
-        #resultImage { max-width: 80%; max-height: 45vh; border-radius: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); margin-bottom: 20px; display: none; }
+        #resultImage { max-width: 80%; max-height: 45vh; border-radius: 15px; box-shadow: 0 0 30px rgba(0,0,0,0.5); margin-bottom: 20px; display: none; object-fit: contain; }
         .title { font-size: 1.8rem; letter-spacing: 4px; color: var(--accent); margin-bottom: 10px; }
         .desc { font-size: 1rem; max-width: 500px; line-height: 1.6; color: #ccc; margin-bottom: 30px; }
     </style>
@@ -85,18 +102,25 @@
             <label>WALKING FREQUENCY: <span id="paceLabel">2.1 Hz</span></label>
             <input type="range" id="paceSlider" min="0.5" max="4.0" step="0.1" value="2.1">
         </div>
+        
         <div class="btn-group" id="preGameBtns">
              <button class="btn hazard" id="maxHazardBtn" onclick="setMaxHazard()">MAX HAZARD</button>
              <button class="btn sip" id="preSipBtn" onclick="preGameSip()">減らして開始 (飲む)</button>
              <button class="btn start" id="startBtn" onclick="startGame()">START OPERATION</button>
         </div>
+        
         <div class="btn-group" id="inGameBtns" style="display:none;">
             <button class="btn cheat" id="cheatBtn" onclick="toggleCheat()">CUP: NORMAL</button>
             <button class="btn sip" id="sipBtn" onclick="takeASip()">一口飲む (残り3)</button>
             <button class="btn hazard" onclick="setMaxHazard()" style="min-width: 50px; font-size: 0.8rem;">⚠️</button>
         </div>
+
+        <button class="calib-btn" id="calibBtn" onclick="calibrateSensor()" style="display:none;">
+            ⚖️ SET ZERO (水平リセット)
+        </button>
+
         <div style="text-align:center; font-size:0.8rem; color:#888; margin-top:5px;">
-            操作: 矢印キー(傾ける) / マウス / スマホ | 飲む: スペース
+            操作: 矢印キー(ゆっくり) / マウス / スマホ(手ブレ有) | 飲む: スペース
         </div>
     </div>
 </div>
@@ -107,7 +131,7 @@
     <p class="desc" id="overlayDesc">
         物理法則という名の「悪霊」に挑戦せよ。<br>
         カップの8割まで注がれた液体。<br>
-        「一口飲む」ことの重要性を噛み締めろ。
+        「一口飲む」ことは、安全と引き換えに<br>苦難の道を伸ばす諸刃の剣。
     </p>
     <button class="btn" id="sensorBtn" onclick="requestSensorPermission()" style="display:none; margin-bottom: 15px;">START SENSOR (Mobile)</button>
     <button class="btn" id="overlayMainBtn" onclick="closeOverlay()">ENTER LAB</button>
@@ -116,34 +140,54 @@
 <script>
     // --- 設定 ---
     const CONFIG = {
-        baseTime: 10.0, sipBonus: 5.0,
-        g: 9.8, cupWidth: 150,
+        baseTime: 10.0,
+        g: 9.8, 
+        cupWidth: 150,
         cupHeight: 160,
         initialLiquidH: 130, // 8割スタート
         sipAmount: 25, 
         maxSips: 3,
-        dampingNormal: 0.99, dampingTsubo: 0.94,
+        sipPenalties: [5.0, 10.0, 15.0], // 飲むごとのペナルティ秒数
+        
+        dampingNormal: 0.99, 
+        dampingTsubo: 0.94,
         tremorBaseAmp: 0.04, 
         driftWalkSpeed: 0.002,
-        keyTiltMax: 0.7, 
+        
+        // 入力感度・慣性設定
+        maxTiltAngle: 0.52, 
+        tiltSpeed: 0.52 / 2.0, // 矢印キー用基準速度
         mouseTiltScale: 2.0,    
+        
         defaultMuted: true
     };
 
-    let gameState = 'TITLE'; 
+    let gameState = 'TITLE'; // TITLE, READY, COUNTDOWN, PLAYING, DYING, END
     let timeRemaining = CONFIG.baseTime;
+    let countdownTime = 3.0; // カウントダウン用
     let lastTime = 0;
+    
     let isTsuboMode = false;
     let sipStock = CONFIG.maxSips;
     let currentLiquidH = CONFIG.initialLiquidH;
     let currentHz = 2.1;
     let isMuted = CONFIG.defaultMuted;
+    
     let startTime = 0;
     let dyingStartTime = 0;
 
+    // 物理・角度変数
     let liquidAmp = 0; liquidVel = 0;
-    let cupTilt = 0; let baseTilt = 0; let driftTilt = 0; let handNoise = 0;
-    let keyTilt = 0; let mouseTilt = 0; let deviceTilt = 0;
+    let currentTilt = 0; // 現在の実際のカップ角度
+    let targetTilt = 0;  // 入力が目指している角度
+    let noiseTilt = 0;   // 手ブレなど
+    let driftOffset = 0; // 歩行ドリフト
+
+    // 入力状態
+    let keyInputDir = 0; // -1, 0, 1
+    let mouseTargetRatio = 0; // -1.0 ~ 1.0
+    let gyroData = { gamma: 0 };
+    let gyroOffset = { gamma: 0 }; // キャリブレーション用
 
     const canvas = document.getElementById('simCanvas');
     const ctx = canvas.getContext('2d');
@@ -161,13 +205,16 @@
     const resultImage = document.getElementById('resultImage');
     const overlayMainBtn = document.getElementById('overlayMainBtn');
     const sensorBtn = document.getElementById('sensorBtn');
+    const calibBtn = document.getElementById('calibBtn');
     const muteBtn = document.getElementById('muteBtn');
     const preGameBtns = document.getElementById('preGameBtns');
     const inGameBtns = document.getElementById('inGameBtns');
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const successAudio = new Audio('success.mp3');
-    const failureAudio = new Audio('failure.mp3');
+    
+    // 正しい音声ファイル名
+    const successAudio = new Audio('success.mp3'); 
+    const failureAudio = new Audio('failure.mp3'); 
     successAudio.volume = 0.4; failureAudio.volume = 0.4;
 
     function init() {
@@ -176,9 +223,16 @@
         setupInputs();
         updatePaceUI(parseFloat(paceSlider.value));
         updateMuteUI();
-        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) && typeof DeviceMotionEvent.requestPermission === 'function') {
-            sensorBtn.style.display = 'inline-block';
+        
+        if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                sensorBtn.style.display = 'inline-block';
+             } else {
+                 calibBtn.style.display = 'inline-block';
+                 window.addEventListener('deviceorientation', handleOrientation);
+             }
         }
+        
         requestAnimationFrame(update);
     }
 
@@ -189,33 +243,48 @@
 
     function setupInputs() {
         document.addEventListener('mousemove', (e) => {
-            mouseTilt = ((e.clientX / window.innerWidth) - 0.5) * CONFIG.mouseTiltScale;
+            const ratio = (e.clientX / window.innerWidth) * 2 - 1; 
+            mouseTargetRatio = Math.max(-1, Math.min(1, ratio));
         });
         document.addEventListener('keydown', (e) => {
-            if (e.code === 'ArrowLeft') keyTilt = -CONFIG.keyTiltMax;
-            if (e.code === 'ArrowRight') keyTilt = CONFIG.keyTiltMax;
+            if (e.code === 'ArrowLeft') keyInputDir = -1;
+            if (e.code === 'ArrowRight') keyInputDir = 1;
             if (e.code === 'Space' && gameState === 'PLAYING') takeASip();
         });
         document.addEventListener('keyup', (e) => {
-            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') keyTilt = 0;
+            if ((e.code === 'ArrowLeft' && keyInputDir === -1) || 
+                (e.code === 'ArrowRight' && keyInputDir === 1)) {
+                keyInputDir = 0;
+            }
         });
-        
         paceSlider.addEventListener('input', (e) => {
             updatePaceUI(parseFloat(e.target.value));
         });
+    }
+
+    function handleOrientation(e) {
+        gyroData.gamma = e.gamma || 0;
+        calibBtn.style.display = 'inline-block';
     }
 
     function requestSensorPermission() {
         if (typeof DeviceMotionEvent.requestPermission === 'function') {
             DeviceMotionEvent.requestPermission().then(res => {
                 if (res === 'granted') {
-                    window.addEventListener('deviceorientation', (e) => {
-                        if (e.gamma) deviceTilt = (e.gamma / 90) * 2.5; 
-                    });
+                    window.addEventListener('deviceorientation', handleOrientation);
                     sensorBtn.style.display = 'none';
+                    calibBtn.style.display = 'inline-block';
                 }
             }).catch(console.error);
         }
+    }
+
+    function calibrateSensor() {
+        gyroOffset.gamma = gyroData.gamma;
+        liquidAmp *= 0.5;
+        liquidVel *= 0.5;
+        statusDisplay.textContent = "SENSOR ZERO SET!";
+        setTimeout(() => { if(gameState==='PLAYING') statusDisplay.textContent = "WALKING..."; }, 1000);
     }
 
     function updatePaceUI(val) {
@@ -269,7 +338,7 @@
     function preGameSip() {
         currentLiquidH -= CONFIG.sipAmount;
         if (currentLiquidH < 20) currentLiquidH = 20;
-        playSipSound();
+        playTone('sip'); 
         preSipBtn.textContent = "さらに減らす";
         draw(); 
         updatePaceUI(currentHz); 
@@ -277,16 +346,25 @@
 
     function takeASip() {
         if (sipStock <= 0 || gameState !== 'PLAYING') return;
+        
+        const penaltyIndex = CONFIG.maxSips - sipStock; // 0, 1, 2
+        const penaltyTime = CONFIG.sipPenalties[penaltyIndex];
+        
         sipStock--;
         sipBtn.textContent = `一口飲む (残り${sipStock})`;
         if(sipStock === 0) sipBtn.disabled = true;
 
         currentLiquidH -= CONFIG.sipAmount;
-        timeRemaining += CONFIG.sipBonus;
-        timerDisplay.style.color = 'var(--gold)';
-        setTimeout(() => timerDisplay.style.color = '', 500);
-        playSipSound();
-        statusDisplay.textContent = "質量変化: 共振点シフト";
+        liquidAmp *= 0.6; 
+        
+        timeRemaining += penaltyTime;
+        
+        timerDisplay.classList.remove('penalty');
+        void timerDisplay.offsetWidth; 
+        timerDisplay.classList.add('penalty');
+        
+        playTone('sip');
+        statusDisplay.textContent = `PENALTY! 残り時間 +${penaltyTime}秒`;
         updatePaceUI(currentHz);
     }
 
@@ -305,20 +383,29 @@
 
     function resetGameParams() {
         timeRemaining = CONFIG.baseTime;
-        liquidAmp = 0; liquidVel = 0; cupTilt = 0; baseTilt = 0; driftTilt = 0;
+        liquidAmp = 0; liquidVel = 0; 
+        currentTilt = 0; targetTilt = 0; driftOffset = 0; noiseTilt = 0;
         sipStock = CONFIG.maxSips;
         currentLiquidH = CONFIG.initialLiquidH;
         sipBtn.disabled = false;
         sipBtn.textContent = `一口飲む (残り${sipStock})`;
         preSipBtn.textContent = "減らして開始 (飲む)";
+        timerDisplay.classList.remove('penalty');
     }
 
     function startGame() {
         if (audioCtx.state === 'suspended' && !isMuted) audioCtx.resume();
-        gameState = 'PLAYING';
-        startTime = performance.now();
+        gameState = 'COUNTDOWN'; // カウントダウン開始
+        countdownTime = 3.0;
         preGameBtns.style.display = 'none';
         inGameBtns.style.display = 'flex';
+        statusDisplay.textContent = "LEVEL YOUR CUP!";
+    }
+
+    // 実際の歩行開始
+    function startWalking() {
+        gameState = 'PLAYING';
+        startTime = performance.now();
         stepLoop();
     }
 
@@ -326,14 +413,12 @@
         if (gameState !== 'PLAYING') return; 
         
         applyStepForce();
-        playFootstepSound();
+        playTone('step');
         
         const time = (performance.now() - startTime) / 1000;
         const arrhythmia = Math.sin(time * 0.8) * 0.2; 
-        
         const effHz = currentHz * (1.0 + arrhythmia);
         const baseInterval = 1000 / effHz;
-        
         const jitter = (Math.random() - 0.5) * baseInterval * 0.1;
         
         setTimeout(stepLoop, baseInterval + jitter);
@@ -353,12 +438,7 @@
         const forceMag = (impactBase * gain) * (0.8 + Math.random() * 0.4);
         
         const dir = Math.random() > 0.5 ? 1 : -1;
-        const elapsedTime = (performance.now() - startTime) / 1000;
-        const warmUpFactor = Math.min(1.0, elapsedTime / 2.0);
-
-        const force = dir * forceMag * warmUpFactor;
-        
-        liquidVel += force;
+        liquidVel += dir * forceMag;
         
         if (gain > 2.0) statusDisplay.textContent = "⚠️ RESONANCE PEAK ⚠️";
         else if (gain < 0.3) statusDisplay.textContent = "SAFE ZONE";
@@ -369,17 +449,27 @@
         const dt = (timestamp - lastTime) / 1000 || 0;
         lastTime = timestamp;
 
-        if (gameState === 'PLAYING') {
+        if (gameState === 'COUNTDOWN') {
+            updateInput(dt, timestamp);
+            updatePhysics(dt, timestamp);
+            
+            countdownTime -= dt;
+            if (countdownTime <= 0) {
+                startWalking();
+            }
+        } else if (gameState === 'PLAYING') {
+            updateInput(dt, timestamp); 
             updatePhysics(dt, timestamp);
             updateTimer(dt);
         } else if (gameState === 'DYING') {
-            // スローモーション (1/5倍速)
             updatePhysics(dt * 0.2, timestamp);
             if (performance.now() - dyingStartTime > 1500) {
                 endGame('FAILURE');
             }
         } else if (gameState === 'READY') {
-             updatePhysicsReady(dt);
+             updateInput(dt, timestamp);
+             liquidAmp *= 0.95; liquidVel *= 0.9;
+             currentTilt = targetTilt; 
         }
         draw();
         requestAnimationFrame(update);
@@ -393,53 +483,70 @@
         timerDisplay.textContent = timeRemaining.toFixed(2);
     }
 
-    function updatePhysicsReady(dt) {
-        const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
-        baseTilt += (rawTilt - baseTilt) * 6 * dt; 
-        cupTilt = baseTilt;
-        liquidAmp *= 0.9; 
+    function updateInput(dt, time) {
+        // --- 修正: 矢印キーの速度を減速 (0.5倍) ---
+        // ユーザー指示「反応が速すぎるから修正して」
+        if (keyInputDir !== 0) {
+            targetTilt += keyInputDir * (CONFIG.tiltSpeed * 0.5) * dt;
+        }
+
+        // --- マウス操作 ---
+        const mouseGoal = mouseTargetRatio * CONFIG.maxTiltAngle;
+        if (mouseTargetRatio !== 0 || Math.abs(mouseGoal - targetTilt) > 0.01) {
+             // マウスは即座に反映したいので step を大きく取る
+             const step = 20.0 * dt; 
+             if (mouseGoal > targetTilt) targetTilt = Math.min(targetTilt + step, mouseGoal);
+             else if (mouseGoal < targetTilt) targetTilt = Math.max(targetTilt - step, mouseGoal);
+        }
+
+        if (gyroData.gamma !== 0) {
+            let gyroTilt = (gyroData.gamma - gyroOffset.gamma) * (Math.PI / 180);
+            targetTilt = gyroTilt; 
+        }
+
+        targetTilt = Math.max(-CONFIG.maxTiltAngle, Math.min(CONFIG.maxTiltAngle, targetTilt));
+
+        // --- 修正: 慣性(重み)を削除 ---
+        // ユーザー指示「コップの重みは不要」→ targetTiltをそのままcurrentTiltへ
+        currentTilt = targetTilt;
+
+        const t = time / 1000;
+        const wave1 = Math.sin(t * 1.5);
+        const wave2 = Math.sin(t * 4.2 + 1.0);
+        const wave3 = Math.sin(t * 9.8 + 2.5) * 0.3;
+        noiseTilt = (wave1 + wave2 + wave3) * CONFIG.tremorBaseAmp;
+
+        driftOffset += (Math.random() - 0.5) * CONFIG.driftWalkSpeed;
     }
 
     function updatePhysics(dt, time) {
         if (dt > 0.1) return;
 
-        // --- DYING時は入力を停止 ---
-        if (gameState !== 'DYING') {
-            const t = time / 1000;
-            const wave1 = Math.sin(t * 1.5);
-            const wave2 = Math.sin(t * 4.2 + 1.0);
-            const wave3 = Math.sin(t * 9.8 + 2.5) * 0.3;
-            handNoise = (wave1 + wave2 + wave3) * CONFIG.tremorBaseAmp;
-            driftTilt += (Math.random() - 0.5) * CONFIG.driftWalkSpeed;
-            
-            const rawTilt = [keyTilt, mouseTilt, deviceTilt].reduce((a, b) => Math.abs(a) > Math.abs(b) ? a : b);
-            baseTilt += (rawTilt - baseTilt) * 6 * dt;
-            
-            const prevTilt = cupTilt;
-            cupTilt = baseTilt + driftTilt + handNoise;
-        } 
-        
-        // DYING時はカップは静止する(or 慣性で動く)が、入力更新はしない
-        const cupAngVel = (gameState === 'DYING') ? 0 : 0; 
-
-        // ★修正: DYING時は k を負の値にして、液体を外へ吹き飛ばす
         const k = (gameState === 'DYING') ? -20 : 30;
-        
         let damping = isTsuboMode ? CONFIG.dampingTsubo : CONFIG.dampingNormal;
-        const wallForce = -cupAngVel * 80; 
-        const gravityForce = Math.sin(cupTilt) * 200; 
+        
+        let totalTilt = currentTilt + noiseTilt + driftOffset;
+        if (gameState === 'DYING') {
+            const sign = Math.sign(liquidAmp) || 1;
+            totalTilt += sign * 1.0 * dt; 
+        }
+        
+        const cupAngVel = 0; 
+        const wallForce = -cupAngVel * 80;
+
+        const gravityForce = Math.sin(totalTilt) * 200; 
+        
         if (isTsuboMode && Math.abs(liquidAmp) > 45) damping *= 0.85; 
 
-        // 運動方程式
         const acc = -k * liquidAmp + gravityForce + wallForce;
         liquidVel += acc * dt;
         liquidVel *= Math.pow(damping, dt * 60);
         liquidAmp += liquidVel * dt;
 
-        // こぼれ判定
-        if (gameState === 'PLAYING') {
+        // COUNTDOWN中もこぼれ判定は有効（水平にするのに失敗したらこぼれる）
+        if (gameState === 'PLAYING' || gameState === 'COUNTDOWN') {
             const w = CONFIG.cupWidth / 2;
-            const tanTilt = Math.tan(-cupTilt);
+            const tanTilt = Math.tan(-totalTilt);
             const yLeft = (-currentLiquidH) - liquidAmp + (-w * tanTilt);
             const yRight = (-currentLiquidH) + liquidAmp + (w * tanTilt);
             const rimY = -CONFIG.cupHeight;
@@ -453,7 +560,7 @@
     function startDying() {
         gameState = 'DYING';
         dyingStartTime = performance.now();
-        playFailSound(); 
+        playTone('fail'); 
         if (navigator.vibrate) navigator.vibrate(800);
         statusDisplay.textContent = "CRITICAL FAILURE !!";
         statusDisplay.style.color = 'var(--danger)';
@@ -468,19 +575,29 @@
         overlay.style.display = 'flex';
         resultImage.style.display = 'block';
         sensorBtn.style.display = 'none';
+        calibBtn.style.display = 'none';
+        
         overlayMainBtn.textContent = "RETRY CHALLENGE";
 
         if (result === 'SUCCESS') {
             overlayTitle.textContent = "MISSION CLEAR!";
             overlayTitle.style.color = 'var(--accent)';
             overlayDesc.innerHTML = "お見事！物理法則を完全に掌握しましたね。<br>計算通りの勝利です。";
-            resultImage.src = "success.png";
-            playWinSound();
+            resultImage.src = "success.png"; 
+            if(!isMuted) {
+                successAudio.currentTime = 0;
+                successAudio.play().catch(e=>{});
+            }
+            playTone('win');
         } else {
             overlayTitle.textContent = "SPILL DETECTED!";
             overlayTitle.style.color = 'var(--danger)';
-            overlayDesc.innerHTML = "残念...物理の魔物に飲み込まれました。<br>制御不能なエネルギーの暴走です。";
-            resultImage.src = "failure.png";
+            overlayDesc.innerHTML = "残念...物理の魔物に飲み込まれました。<br>リズムが合ってしまったようです。<br>「あいたた〜」";
+            resultImage.src = "failure.png"; 
+            if(!isMuted) {
+                failureAudio.currentTime = 0;
+                failureAudio.play().catch(e=>{});
+            }
         }
     }
 
@@ -491,7 +608,9 @@
 
         ctx.save();
         ctx.translate(cx, cy);
-        ctx.rotate(cupTilt);
+        
+        const drawTilt = currentTilt + noiseTilt + driftOffset;
+        ctx.rotate(drawTilt);
 
         function defineCupPath(isClip) {
             ctx.beginPath();
@@ -505,19 +624,12 @@
                 ctx.bezierCurveTo(w * 1.2, -h * 0.3, w * 0.6, -h * 0.6, w * 0.6, -h);
                 if (isClip) ctx.closePath();
             } else {
-                // --- 変更箇所: Uの字型 ---
                 ctx.moveTo(-w, -h); 
-                // 左側面：上8割くらいまで垂直
                 ctx.lineTo(-w, -h * 0.2); 
-                // 左下：丸みをつける
                 ctx.quadraticCurveTo(-w, 0, -w * 0.5, 0);
-                // 底面：平ら
                 ctx.lineTo(w * 0.5, 0);
-                // 右下：丸みをつける
                 ctx.quadraticCurveTo(w, 0, w, -h * 0.2);
-                // 右側面：垂直に上がる
                 ctx.lineTo(w, -h);
-                
                 if (isClip) ctx.closePath(); 
             }
         }
@@ -532,17 +644,15 @@
         const w = CONFIG.cupWidth / 2;
         const h = CONFIG.cupHeight;
         const liquidTopY = -currentLiquidH;
-        const tanTilt = Math.tan(-cupTilt);
-        // U字型になってもこぼれ判定と描画幅は変えない（難易度維持）
-        // 見た目上の幅合わせのため w をそのまま使う
-        
+        const tanTilt = Math.tan(-drawTilt);
+
         const yLeft = liquidTopY - liquidAmp + (-w * tanTilt);
         const yRight = liquidTopY + liquidAmp + (w * tanTilt);
 
-        ctx.moveTo(isTsuboMode ? -w : -w, 0); 
-        ctx.lineTo(-w, yLeft); 
-        ctx.lineTo(w, yRight); 
-        ctx.lineTo(isTsuboMode ? w : w, 0); 
+        ctx.moveTo(-w * 2, 0); 
+        ctx.lineTo(-w * 2, yLeft); 
+        ctx.lineTo(w * 2, yRight); 
+        ctx.lineTo(w * 2, 0); 
         
         ctx.closePath();
         ctx.fill();
@@ -551,34 +661,41 @@
         ctx.strokeStyle = isTsuboMode ? 'var(--accent)' : '#aaa';
         ctx.lineWidth = 6;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         defineCupPath(false); 
         ctx.stroke();
-
-        // --- 追加: 取っ手を描画 (通常モードのみ) ---
+        
         if (!isTsuboMode) {
             ctx.beginPath();
             const w = CONFIG.cupWidth / 2;
             const h = CONFIG.cupHeight;
+            const tY = -h * 0.8;
+            const bY = -h * 0.3;
             
-            // 壁の正確な位置（右側面は x = w）
-            // 開始点を壁の表面(w)に合わせることでめり込みを解消
-            ctx.moveTo(w, -h * 0.8);
-            
-            // 制御点のY座標を接続点と同じ高さにすることで、水平（0度）に接続させる
-            ctx.bezierCurveTo(
-                w + 50, -h * 0.8,  // CP1 (Startと同じY = 水平に出る)
-                w + 50, -h * 0.3,  // CP2 (Endと同じY = 水平に入る)
-                w, -h * 0.3        // End
-            );
+            ctx.moveTo(w, tY);
+            ctx.bezierCurveTo(w + 50, tY, w + 50, bY, w, bY);
             ctx.stroke();
         }
-        
+
         ctx.restore();
+
+        // --- 追加: カウントダウン表示 ---
+        if (gameState === 'COUNTDOWN') {
+            ctx.save();
+            ctx.fillStyle = 'white';
+            ctx.font = 'bold 80px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.shadowColor = 'rgba(0, 242, 255, 0.8)';
+            ctx.shadowBlur = 20;
+            const count = Math.ceil(countdownTime);
+            ctx.fillText(count > 0 ? count : "GO!", canvas.width/2, canvas.height/2);
+            ctx.restore();
+        }
     }
 
-    function playSound(type) {
+    function playTone(type) {
         if(isMuted) return;
-        if(audioCtx.state === 'suspended') audioCtx.resume();
         
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
@@ -586,24 +703,36 @@
         const now = audioCtx.currentTime;
         
         if (type === 'step') {
-            osc.frequency.setValueAtTime(100, now);
-            osc.frequency.exponentialRampToValueAtTime(30, now + 0.1);
-            gain.gain.setValueAtTime(0.2, now);
+            osc.frequency.setValueAtTime(80, now);
+            osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+            gain.gain.setValueAtTime(0.15, now);
             gain.gain.linearRampToValueAtTime(0, now + 0.1);
             osc.start(); osc.stop(now + 0.1);
         } else if (type === 'sip') {
-            osc.type = 'triangle';
+            osc.type = 'sine';
             osc.frequency.setValueAtTime(600, now);
-            osc.frequency.linearRampToValueAtTime(800, now + 0.3);
-            gain.gain.setValueAtTime(0.3, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.4);
-            osc.start(); osc.stop(now + 0.4);
+            osc.frequency.linearRampToValueAtTime(900, now + 0.2);
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.3);
+            osc.start(); osc.stop(now + 0.3);
+        } else if (type === 'fail') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, now);
+            osc.frequency.linearRampToValueAtTime(50, now + 0.8);
+            gain.gain.setValueAtTime(0.5, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.8);
+            osc.start(); osc.stop(now + 0.8);
+        } else if (type === 'win') {
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(523.25, now); 
+            osc.frequency.setValueAtTime(659.25, now + 0.1); 
+            osc.frequency.setValueAtTime(783.99, now + 0.2); 
+            gain.gain.setValueAtTime(0.2, now);
+            gain.gain.setValueAtTime(0.2, now + 0.4);
+            gain.gain.linearRampToValueAtTime(0, now + 0.6);
+            osc.start(); osc.stop(now + 0.6);
         }
     }
-    function playFootstepSound() { playSound('step'); }
-    function playSipSound() { playSound('sip'); }
-    function playWinSound() { if(!isMuted) { successAudio.currentTime = 0; successAudio.play().catch(e=>{}); } }
-    function playFailSound() { if(!isMuted) { failureAudio.currentTime = 0; failureAudio.play().catch(e=>{}); } }
 
     init();
 </script>
